@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-UPSTREAM_REPO="https://github.com/Miguel-T80c/Arcade-Zaxxon_MiSTer.git"
+UPSTREAM_REPO="https://github.com/MiSTer-DB9/Arcade-Zaxxon_MiSTer.git"
 CORE_NAME="Arcade-Zaxxon"
 MAIN_BRANCH="master"
 
