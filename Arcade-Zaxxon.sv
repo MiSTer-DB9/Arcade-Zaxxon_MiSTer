@@ -29,14 +29,19 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
-	output        VGA_CLK,
+	output        CLK_VIDEO,
 
-	//Multiple resolutions are supported using different VGA_CE rates.
+	//Multiple resolutions are supported using different CE_PIXEL rates.
 	//Must be based on CLK_VIDEO
-	output        VGA_CE,
+	output        CE_PIXEL,
+
+	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -45,25 +50,42 @@ module emu
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
 	output        VGA_F1,
+	output [1:0]  VGA_SL,
+	output        VGA_SCALER, // Force VGA scaler
+	output        VGA_DISABLE, // analog out is off
 
-	//Base video clock. Usually equals to CLK_SYS.
-	output        HDMI_CLK,
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
+	output        HDMI_FREEZE,
 
-	//Multiple resolutions are supported using different HDMI_CE rates.
-	//Must be based on CLK_VIDEO
-	output        HDMI_CE,
+`ifdef MISTER_FB
+	// Use framebuffer in DDRAM
+	// FB_FORMAT:
+	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
+	//    [3]   : 0=16bits 565 1=16bits 1555
+	//    [4]   : 0=RGB  1=BGR (for 16/24/32 modes)
+	//
+	// FB_STRIDE either 0 (rounded to 256 bytes) or multiple of pixel size (in bytes)
+	output        FB_EN,
+	output  [4:0] FB_FORMAT,
+	output [11:0] FB_WIDTH,
+	output [11:0] FB_HEIGHT,
+	output [31:0] FB_BASE,
+	output [13:0] FB_STRIDE,
+	input         FB_VBL,
+	input         FB_LL,
+	output        FB_FORCE_BLANK,
 
-	output  [7:0] HDMI_R,
-	output  [7:0] HDMI_G,
-	output  [7:0] HDMI_B,
-	output        HDMI_HS,
-	output        HDMI_VS,
-	output        HDMI_DE,   // = ~(VBlank | HBlank)
-	output  [1:0] HDMI_SL,   // scanlines fx
-
-	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output  [7:0] HDMI_ARX,
-	output  [7:0] HDMI_ARY,
+`ifdef MISTER_FB_PALETTE
+	// Palette control for 8bit modes.
+	// Ignored for other video modes.
+	output        FB_PAL_CLK,
+	output  [7:0] FB_PAL_ADDR,
+	output [23:0] FB_PAL_DOUT,
+	input  [23:0] FB_PAL_DIN,
+	output        FB_PAL_WR,
+`endif
+`endif
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
@@ -73,11 +95,40 @@ module emu
 	output  [1:0] LED_POWER,
 	output  [1:0] LED_DISK,
 
+	// I/O board button press simulation (active high)
+	// b[1]: user button
+	// b[0]: osd button
+	output  [1:0] BUTTONS,
+
+	input         CLK_AUDIO, // 24.576 MHz
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
-	output        AUDIO_S,    // 1 - signed audio samples, 0 - unsigned
+	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
+	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
 
-	
+	//ADC
+	inout   [3:0] ADC_BUS,
+
+	//SD-SPI
+	output        SD_SCK,
+	output        SD_MOSI,
+	input         SD_MISO,
+	output        SD_CS,
+	input         SD_CD,
+
+	//High latency DDR3 RAM interface
+	//Use for non-critical time purposes
+	output        DDRAM_CLK,
+	input         DDRAM_BUSY,
+	output  [7:0] DDRAM_BURSTCNT,
+	output [28:0] DDRAM_ADDR,
+	input  [63:0] DDRAM_DOUT,
+	input         DDRAM_DOUT_READY,
+	output        DDRAM_RD,
+	output [63:0] DDRAM_DIN,
+	output  [7:0] DDRAM_BE,
+	output        DDRAM_WE,
+
 	//SDRAM interface with lower latency
 	output        SDRAM_CLK,
 	output        SDRAM_CKE,
@@ -89,26 +140,57 @@ module emu
 	output        SDRAM_nCS,
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
-	output        SDRAM_nWE, 
+	output        SDRAM_nWE,
+
+`ifdef MISTER_DUAL_SDRAM
+	//Secondary SDRAM
+	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
+	input         SDRAM2_EN,
+	output        SDRAM2_CLK,
+	output [12:0] SDRAM2_A,
+	output  [1:0] SDRAM2_BA,
+	inout  [15:0] SDRAM2_DQ,
+	output        SDRAM2_nCS,
+	output        SDRAM2_nCAS,
+	output        SDRAM2_nRAS,
+	output        SDRAM2_nWE,
+`endif
+
+	input         UART_CTS,
+	output        UART_RTS,
+	input         UART_RXD,
+	output        UART_TXD,
+	output        UART_DTR,
+	input         UART_DSR,
 
 	// Open-drain User port.
 	// 0 - D+/RX
 	// 1 - D-/TX
 	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-	output	USER_OSD,
+	output        USER_OSD,
 	// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: per-pin push-pull mask
-	output	[7:0] USER_PP,
+	output  [7:0] USER_PP,
 	// [MiSTer-DB9 END]
-	input	[7:0] USER_IN,
-	output	[7:0] USER_OUT
+	input   [7:0] USER_IN,
+	output  [7:0] USER_OUT,
+
+	input         OSD_STATUS
 );
 
 
-// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: USER_PP default (port_batch replaces with USER_PP_DRIVE)
+assign ADC_BUS  = 'Z;
+// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: USER_PP default
 assign USER_PP = USER_PP_DRIVE;
 // [MiSTer-DB9 END]
-assign VGA_F1    = 0;
+assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
+assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
+
+assign VGA_F1 = 0;
+assign VGA_SCALER = 0;
+assign VGA_DISABLE = 0;
+
 // [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: joydb wrapper
 wire         CLK_JOY = CLK_50M;                 // Assign clock between 40-50Mhz
 wire   [1:0] joy_type        = status[127:126]; // 0=Off, 1=Saturn, 2=DB9MD, 3=DB15
@@ -116,8 +198,6 @@ wire         joy_2p          = status[125];
 wire         joy_db9md_en    = (joy_type == 2'd2);
 wire         joy_db15_en     = (joy_type == 2'd3);
 wire         joy_any_en      = |joy_type;
-// Legacy 3-bit alias for fork-specific MT32 / SNAC fallback code. Non-canonical
-// RHS variants (ext_iec_en, mt32_disable) need a hand-port — alias is raw.
 wire   [2:0] JOY_FLAG        = {joy_db9md_en, joy_db15_en, joy_2p};
 // [MiSTer-DB9 END]
 
@@ -151,31 +231,46 @@ joydb joydb (
 assign USER_OUT = USER_OUT_DRIVE;
 // [MiSTer-DB9 END]
 
+
 assign LED_USER  = rom_download;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
+assign BUTTONS   = 0;
+assign AUDIO_MIX = 0;
 
-assign HDMI_ARX = status[1] ? 8'd16 : status[2] ? 8'd4 : 8'd3;
-assign HDMI_ARY = status[1] ? 8'd9  : status[2] ? 8'd3 : 8'd4;
+assign FB_FORCE_BLANK = '0;
+assign HDMI_FREEZE = 0;
+
+wire [1:0] ar = status[20:19];
+
+assign VIDEO_ARX = (!ar) ? ((status[2]) ? 8'd4 : 8'd3) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? ((status[2]) ? 8'd3 : 8'd4) : 12'd0;
 
 `include "build_id.v" 
 localparam CONF_STR = {
 	"ZAXXON;;",
 	"-;",
-	"H0O1,Aspect Ratio,Original,Wide;",
+	"H0OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"H0O2,Orientation,Vert,Horz;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
-		// [MiSTer-DB9-Pro BEGIN] - Saturn-first joy_type (canonical bit notation)
+	"H1OR,Autosave Hiscores,Off,On;",
+	"P1,Pause options;",
+	"P1OP,Pause when OSD is open,On,Off;",
+	"P1OQ,Dim video after 10s,On,Off;",
+	// [MiSTer-DB9-Pro BEGIN] - Saturn-first joy_type (canonical bit notation)
 	"O[127:126],UserIO Joystick,Off,Saturn,DB9MD,DB15;",
 	"O[125],UserIO Players, 1 Player,2 Players;",
 	// [MiSTer-DB9-Pro END]
 	"-;",
 	"DIP;",
 	"-;",
+//	"O6,Service,Off,On;",
+	"O7,Flip,Off,On;",
+	"-;",
 	"R0,Reset;",
-	"J1,Fire,Start 1P,Start 2P,Coin;",
-	"jn,A,Start,Select,R;",
+	"J1,Fire 1,Fire 2,Start 1P,Start 2P,Coin,Pause;",
+	"jn,A,B,Start,Select,R,L;",
 	"V,v",`BUILD_DATE
 };
 
@@ -199,14 +294,17 @@ wire [127:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire        direct_video;
+wire        video_rotated;
 
 wire [15:0] audio_l, audio_r;
 
-wire [10:0] ps2_key;
-
-wire [15:0] joy1_USB, joy2_USB, joy3_USB, joy4_USB;
-wire [15:0] joy = joy1 | joy2 | joy3 | joy4;
-wire [15:0] joy1a, joy2a, joy3a, joy4a;
+wire [15:0] joy1_USB, joy2_USB;
+wire [15:0] joy3, joy4;
+// [MiSTer-DB9-Pro BEGIN] - DB controllers muted while OSD is open
+// joydb_1[4]=A(Fire1) [5]=B(Fire2) [10]=Start(Start1P) [9]=Mode(Start2P) [11]=Z(Coin)
+wire [15:0] joy1 = joydb_1ena ? (OSD_STATUS ? 16'b0 : {joydb_1[11],joydb_1[9],joydb_1[10],joydb_1[5:0]}) : joy1_USB;
+wire [15:0] joy2 = joydb_2ena ? (OSD_STATUS ? 16'b0 : {joydb_2[11],joydb_2[10],joydb_2[9],joydb_2[5:0]}) : joydb_1ena ? joy1_USB : joy2_USB;
+// [MiSTer-DB9-Pro END]
 
 wire signed [8:0] mouse_x;
 wire signed [8:0] mouse_y;
@@ -215,173 +313,121 @@ reg   [7:0] mouse_flags;
 
 wire [21:0] gamma_bus;
 
-// CO S2 S1 F1 U D L R 
-// [MiSTer-DB9-Pro BEGIN] - DB controllers muted while OSD is open
-wire [31:0] joy1 = joydb_1ena ? (OSD_STATUS ? 32'b0 : {joydb_1[11],joydb_1[9],joydb_1[10],joydb_1[4:0]}) : joy1_USB;
-// [MiSTer-DB9-Pro END]
-// [MiSTer-DB9-Pro BEGIN] - DB controllers muted while OSD is open
-wire [31:0] joy2 = joydb_2ena ? (OSD_STATUS ? 32'b0 : {joydb_2[11],joydb_2[10],joydb_2[9],joydb_2[4:0]}) : joydb_1ena ? joy1_USB : joy2_USB;
-// [MiSTer-DB9-Pro END]
-wire [31:0] joy3 = joydb_2ena ? joy1_USB : joydb_1ena ? joy2_USB : joy3_USB;
-wire [31:0] joy4 = joydb_2ena ? joy2_USB : joydb_1ena ? joy3_USB : joy4_USB;
+wire        ioctl_download;
+wire        ioctl_upload;
+wire        ioctl_upload_req;
+wire        ioctl_wr;
+wire [24:0] ioctl_addr;
+wire  [7:0] ioctl_dout;
+wire  [7:0] ioctl_din;
+wire  [7:0] ioctl_index;
+wire        ioctl_wait=0;
 
-
-
-
-
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.conf_str(CONF_STR),
-
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({direct_video}),
+	.status_menumask({~hs_configured,direct_video}),
 
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
+   .video_rotated(video_rotated),
 	.direct_video(direct_video),
 
 	.ioctl_download(ioctl_download),
+	.ioctl_upload(ioctl_upload),
+	.ioctl_upload_req(ioctl_upload_req),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_din(ioctl_din),
 	.ioctl_index(ioctl_index),
+	.ioctl_wait(ioctl_wait),
 
 	.joystick_0(joy1_USB),
 	.joystick_1(joy2_USB),
-	.joystick_2(joy3_USB),
-	.joystick_3(joy4_USB),
-
-	.joystick_analog_0(joy1a),
-	.joystick_analog_1(joy2a),
-	.joystick_analog_2(joy3a),
-	.joystick_analog_3(joy4a),
-
+	.joystick_2(joy3),
+	.joystick_3(joy4),
 	// [MiSTer-DB9 BEGIN] - DB9/SNAC8 support: joy_raw
 	.joy_raw(OSD_STATUS ? joy_raw_payload : 16'b0),
 	// [MiSTer-DB9 END]
 	// [MiSTer-DB9-Pro BEGIN] - Saturn key gate
-	.saturn_unlocked(saturn_unlocked),
+	.saturn_unlocked(saturn_unlocked)
 	// [MiSTer-DB9-Pro END]
-	.ps2_key(ps2_key)
 );
 
 // load the DIPS
 reg [7:0] sw[8];
 always @(posedge clk_sys) if (ioctl_wr && (ioctl_index==254) && !ioctl_addr[24:3]) sw[ioctl_addr[2:0]] <= ioctl_dout;
 
-wire       pressed = ps2_key[9];
-wire [7:0] code    = ps2_key[7:0];
-always @(posedge clk_sys) begin
-	reg old_state;
-	old_state <= ps2_key[10];
-	
-	if(old_state != ps2_key[10]) begin
-		casex(code)
-			'h75: btn_up            <= pressed; // up
-			'h72: btn_down          <= pressed; // down
-			'h6B: btn_left          <= pressed; // left
-			'h74: btn_right         <= pressed; // right
-			'h76: btn_coin1         <= pressed; // ESC
-			'h05: btn_start1        <= pressed; // F1
-			'h06: btn_start2        <= pressed; // F2
-			'h14: btn_fireA         <= pressed; // lctrl
-			//'h11: btn_fireB         <= pressed; // lalt
-			//'h29: btn_fireC         <= pressed; // Space
-			// JPAC/IPAC/MAME Style Codes
-			'h16: btn_start1        <= pressed; // 1
-			'h1E: btn_start2        <= pressed; // 2
-			//'h26: btn_start3        <= pressed; // 3
-			//'h25: btn_start4        <= pressed; // 4
-			'h2E: btn_coin1         <= pressed; // 5
-			'h36: btn_coin2         <= pressed; // 6
-			//'h3D: btn_coin3         <= pressed; // 7
-			//'h3E: btn_coin4         <= pressed; // 8
-			'h2D: btn_up2           <= pressed; // R
-			'h2B: btn_down2         <= pressed; // F
-			'h23: btn_left2         <= pressed; // D
-			'h34: btn_right2        <= pressed; // G
-			'h1C: btn_fire2A        <= pressed; // A
-			//'h1B: btn_fire2B        <= pressed; // S
-			//'h21: btn_fire2C        <= pressed; // Q
-			//'h1D: btn_fire2D        <= pressed; // W
-			//'h1D: btn_fire2E        <= pressed; // W
-			//'h1D: btn_fire2F        <= pressed; // W
-			//'h1D: btn_tilt          <= pressed; // W
-		endcase
-	end
-end
+// load the game title
+reg [7:0] mod = 0;
+always @(posedge clk_sys) if (ioctl_wr & (ioctl_index==1)) mod <= ioctl_dout;
 
-reg btn_left   = 0;
-reg btn_right  = 0;
-reg btn_down   = 0;
-reg btn_up     = 0;
-reg btn_fireA  = 0;
-//reg btn_fireB  = 0;
-//reg btn_fireC  = 0;
-//reg btn_fireD  = 0;
-reg btn_coin1  = 0;
-reg btn_coin2  = 0;
-reg btn_start1 = 0;
-reg btn_start2 = 0;
-reg btn_up2    = 0;
-reg btn_down2  = 0;
-reg btn_left2  = 0;
-reg btn_right2 = 0;
-reg btn_fire2A = 0;
-//reg btn_fire2B = 0;
-//reg btn_fire2C = 0;
-//reg btn_fire2D = 0;
+localparam mod_zaxxon = 0;
+localparam mod_superzaxxon = 1;
+localparam mod_futurespy = 2;
 
+wire m_start1  = (mod==mod_futurespy) ? joy1[6] : joy1[5];
+wire m_start2  = (mod==mod_futurespy) ? joy1[7] : joy1[6];
+wire m_coin1   = (mod==mod_futurespy) ? joy1[8] : joy1[7];
 
-wire m_start1  = btn_start1 | joy[5];
-wire m_start2  = btn_start2 | joy[6];
-wire m_coin1   = btn_coin1  | btn_coin2 | joy[7];
+wire m_right1  = joy1[0];
+wire m_left1   = joy1[1];
+wire m_down1   = (mod==mod_futurespy) ? joy1[2] : joy1[3];
+wire m_up1     = (mod==mod_futurespy) ? joy1[3] : joy1[2];
+wire m_fire1a  = joy1[4];
+wire m_fire1b  = joy1[5];
 
-wire m_right1  = btn_right  | joy1[0];
-wire m_left1   = btn_left   | joy1[1];
-wire m_down1   = btn_down   | joy1[2];
-wire m_up1     = btn_up     | joy1[3];
-wire m_fire1a  = btn_fireA  | joy1[4];
-//wire m_fire1b  = btn_fireB  | joy1[5];
-//wire m_fire1c  = btn_fireC  | joy1[6];
-//wire m_fire1d  = btn_fireD  | joy1[7];
-
-wire m_right2  = btn_right2 | joy2[0];
-wire m_left2   = btn_left2  | joy2[1];
-wire m_down2   = btn_down2  | joy2[2];
-wire m_up2     = btn_up2    | joy2[3];
-wire m_fire2a  = btn_fire2A | joy2[4];
-//wire m_fire2b  = btn_fire2B | joy2[5];
-//wire m_fire2c  = btn_fire2C | joy2[6];
-//wire m_fire2d  = btn_fire2D | joy2[7];
+wire m_right2  = joy2[0];
+wire m_left2   = joy2[1];
+wire m_down2   = (mod==mod_futurespy) ? joy2[2] : joy2[3];
+wire m_up2     = (mod==mod_futurespy) ? joy2[3] : joy2[2];
+wire m_fire2a  = joy2[4];
+wire m_fire2b  = joy2[5];
 
 wire m_right   = m_right1 | m_right2;
 wire m_left    = m_left1  | m_left2; 
 wire m_down    = m_down1  | m_down2; 
 wire m_up      = m_up1    | m_up2;   
 wire m_fire_a  = m_fire1a | m_fire2a;
-//wire m_fire_b  = m_fire1b | m_fire2b;
-//wire m_fire_c  = m_fire1c | m_fire2c;
-//wire m_fire_d  = m_fire1d | m_fire2d;
+wire m_fire_b  = m_fire1b | m_fire2b;
+wire m_pause  = (mod==mod_futurespy) ? joy1[9] : joy1[8];
 
-wire rom_download = ioctl_download && !ioctl_index;
+// PAUSE SYSTEM
+wire				pause_cpu;
+wire [7:0]		rgb_out;
+pause #(3,3,2,24) pause (
+	.*,
+	.user_button(m_pause),
+	.pause_request(hs_pause),
+	.options(~status[26:25])
+);
 
-wire        ioctl_download;
-wire  [7:0] ioctl_index;
-wire        ioctl_wr;
-wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_dout;
+reg         download_complete = 1'b0;
+reg         last_ioctl_download;
+reg   [7:0] last_ioctl_index;
+always @(posedge clk_sys)
+begin
+	last_ioctl_download <= ioctl_download;
+	last_ioctl_index <= ioctl_index;
+	if (last_ioctl_download == 1'd1 && ioctl_download == 1'd0 && last_ioctl_index == 2'd2) download_complete = 1'b1;
+end
 
-wire reset = status[0] | buttons[1] | rom_download;
+wire rom_download = ioctl_download && (ioctl_index == 1'd0);
+wire wave_download = ioctl_download && (ioctl_index == 2'd2);
+wire reset = status[0] | buttons[1] | (download_complete == 1'b0);
 
 zaxxon zaxxon
 (
+	.mod_superzaxxon(mod==mod_superzaxxon),
+	.mod_futurespy(mod==mod_futurespy),
 	.clock_24(clk_sys),
 	.reset(reset),
+	.pause(pause_cpu),
 	.video_r(r),
 	.video_g(g),
 	.video_b(b),
@@ -395,8 +441,8 @@ zaxxon zaxxon
 	.audio_out_l(audio_l),
 	.audio_out_r(audio_r),
 
-	.dl_addr(ioctl_addr[16:0]),
-	.dl_wr(ioctl_wr&rom_download),
+	.dl_addr(ioctl_addr[17:0]),
+	.dl_wr(ioctl_wr & rom_download),
 	.dl_data(ioctl_dout),
 
 	.coin1(m_coin1),
@@ -408,23 +454,30 @@ zaxxon zaxxon
 	.left(m_left),
 	.up(m_up),
 	.down(m_down),
-	.fire(m_fire_a),
+	.fire1(m_fire_a),
+	.fire2(m_fire_b),
  
 	.right_c(m_right),
 	.left_c(m_left),
 	.up_c(m_up),
 	.down_c(m_down),
-	.fire_c(m_fire_a),
+	.fire1_c(m_fire_a),
+	.fire2_c(m_fire_b),
 	
 	.sw1_input(sw[0]), // cocktail(1) / sound(1) / ships(2) / N.U.(2) /  extra ship (2)	
 	.sw2_input(8'h33), // coin b(4) / coin a(4)  -- "3" => 1c_1c
 
-	.service(1'b0),
-	.flip_screen(1'b1),
+	//.service(status[6]),
+	.flip_screen(~status[7]),
 	
 	.wave_data(wave_data),
 	.wave_addr(wave_addr),
-	.wave_rd(wave_rd)
+	.wave_rd(wave_rd),
+	
+	.hs_address(hs_address),
+	.hs_data_out(hs_data_out),
+	.hs_data_in(hs_data_in),
+	.hs_write(hs_write_enable)
 );
 
 //wire ce_pix_old;
@@ -451,19 +504,22 @@ always @(posedge clk_48m) begin
 	ce_pix <= !div;
 end
 
-arcade_video #(256,224,8) arcade_video
+wire rotate_ccw = 0;
+wire no_rotate = status[2] | direct_video  ;
+wire flip       = 0;
+screen_rotate screen_rotate (.*);
+
+arcade_video #(256,8) arcade_video
 (
 	.*,
 
 	.clk_video(clk_48m),
-	.RGB_in({r,g,b}),
+	.RGB_in(rgb_out),
 	.HBlank(hblank),
 	.VBlank(vblank),
 	.HSync(hs),
 	.VSync(vs),
 
-	.no_rotate(status[2] | direct_video),
-	.rotate_ccw(1'b0),
 	.fx(status[5:3])
 );
 
@@ -482,7 +538,7 @@ sdram sdram
 	.clk(clk_48m),
 
 	.addr(ioctl_download ? ioctl_addr :{5'b0,wave_addr}),
-	.we(ioctl_download && ioctl_wr && (ioctl_index==1)),
+	.we(wave_download && ioctl_wr),
 	.rd(~ioctl_download & wave_rd),
 	.din(ioctl_dout),
 	.dout(wave_data),
@@ -490,5 +546,37 @@ sdram sdram
 	.ready()
 );
 
+
+// HISCORE SYSTEM
+// --------------
+
+wire [11:0]hs_address;
+wire [7:0] hs_data_in;
+wire [7:0] hs_data_out;
+wire hs_write_enable;
+wire hs_pause;
+wire hs_configured;
+
+hiscore #(
+	.HS_ADDRESSWIDTH(12),
+	.HS_SCOREWIDTH(8),			// 129 bytes max (zaxxon/szaxxon)
+	.CFG_ADDRESSWIDTH(2),		// 2 entries max (zaxxon/szaxxon)
+	.CFG_LENGTHWIDTH(2)
+) hi (
+	.*,
+	.clk(clk_sys),
+	.paused(pause_cpu),
+	.autosave(status[27]),
+	.ram_address(hs_address),
+	.data_from_ram(hs_data_out),
+	.data_to_ram(hs_data_in),
+	.data_from_hps(ioctl_dout),
+	.data_to_hps(ioctl_din),
+	.ram_write(hs_write_enable),
+	.ram_intent_read(),
+	.ram_intent_write(),
+	.pause_cpu(hs_pause),
+	.configured(hs_configured)
+);
 
 endmodule

@@ -122,6 +122,9 @@ entity zaxxon is
 port(
  clock_24       : in std_logic;
  reset          : in std_logic;
+ pause          : in std_logic;
+mod_superzaxxon : in std_logic;
+mod_futurespy   : in std_logic;
 -- tv15Khz_mode   : in std_logic;
  video_r        : out std_logic_vector(2 downto 0);
  video_g        : out std_logic_vector(2 downto 0);
@@ -146,13 +149,15 @@ port(
  right          : in std_logic; 
  up             : in std_logic;
  down           : in std_logic;
- fire           : in std_logic;
+ fire1          : in std_logic;
+ fire2          : in std_logic;
  
  left_c         : in std_logic; 
  right_c        : in std_logic; 
  up_c           : in std_logic;
  down_c         : in std_logic;
- fire_c         : in std_logic;
+ fire1_c        : in std_logic;
+ fire2_c        : in std_logic;
 
  sw1_input      : in  std_logic_vector( 7 downto 0);
  sw2_input      : in  std_logic_vector( 7 downto 0);
@@ -160,13 +165,19 @@ port(
  service        : in std_logic;
  flip_screen    : in std_logic;
     
- dl_addr        : in  std_logic_vector(16 downto 0);
+ dl_addr        : in  std_logic_vector(17 downto 0);
  dl_wr          : in  std_logic;
  dl_data        : in  std_logic_vector( 7 downto 0);
 
  wave_addr      : buffer std_logic_vector(19 downto 0);
  wave_rd        : out std_logic;
- wave_data      : in std_logic_vector(15 downto 0)
+ wave_data      : in std_logic_vector(15 downto 0);
+ 
+ -- HISCORE
+ hs_address     : in  std_logic_vector(11 downto 0);
+ hs_data_out    : out std_logic_vector(7 downto 0);
+ hs_data_in     : in  std_logic_vector(7 downto 0);
+ hs_write       : in  std_logic
  
  );
 end zaxxon;
@@ -238,6 +249,9 @@ architecture struct of zaxxon is
  signal bg_graphics1_do  : std_logic_vector( 7 downto 0);
  signal bg_graphics2_do  : std_logic_vector( 7 downto 0);
  signal bg_graphics3_do  : std_logic_vector( 7 downto 0);
+ signal bg_graphics1_do_m  : std_logic_vector( 7 downto 0);
+ signal bg_graphics2_do_m  : std_logic_vector( 7 downto 0);
+ signal bg_graphics3_do_m  : std_logic_vector( 7 downto 0);
  signal bg_bit_nb        : integer range 0 to 7;
  signal bg_color_a       : std_logic_vector(3 downto 0);
  signal bg_color         : std_logic_vector(3 downto 0);
@@ -265,17 +279,23 @@ architecture struct of zaxxon is
  signal sp_color       : std_logic_vector(4 downto 0);
  signal sp_color_r     : std_logic_vector(4 downto 0);
 
- signal sp_code_line    : std_logic_vector(12 downto 0);
+ signal sp_code_line    : std_logic_vector(13 downto 0);
  signal sp_hflip        : std_logic;
+ signal sp_hflip_r      : std_logic;
  signal sp_vflip        : std_logic;
  
- signal sp_graphics_addr  : std_logic_vector(12 downto 0);
+ signal sp_graphics_addr  : std_logic_vector(13 downto 0);
  signal sp_graphics1_do   : std_logic_vector( 7 downto 0); 
  signal sp_graphics2_do   : std_logic_vector( 7 downto 0); 
  signal sp_graphics3_do   : std_logic_vector( 7 downto 0); 
+ signal sp_graphics1_do_m   : std_logic_vector( 7 downto 0); 
+ signal sp_graphics2_do_m   : std_logic_vector( 7 downto 0); 
+ signal sp_graphics3_do_m   : std_logic_vector( 7 downto 0); 
 
  signal sp_ok              : std_logic;
+ signal sp_ok_r            : std_logic;
  signal sp_bit_hpos        : std_logic_vector(7 downto 0);
+ signal sp_bit_hpos_r      : std_logic_vector(7 downto 0);
  signal sp_bit_nb          : integer range 0 to 7;
 
  signal sp_buffer_ram_addr : std_logic_vector(7 downto 0);
@@ -321,6 +341,25 @@ architecture struct of zaxxon is
  signal port_a, port_a_r : std_logic_vector(7 downto 0); -- i8255 ports
  signal port_b, port_b_r : std_logic_vector(7 downto 0);
  signal port_c, port_c_r : std_logic_vector(7 downto 0);
+
+ signal cpu_rom_addr   : std_logic_vector(14 downto 0);
+
+ signal cpu_rom_dec : std_logic_vector(7 downto 0);
+ signal cpu_rom_dec_combined : std_logic_vector(7 downto 0);
+
+COMPONENT Sega_Crypt
+        PORT
+        (
+                mod_futurespy                   :        IN STD_LOGIC;
+                clk                             :        IN STD_LOGIC;
+                mrom_m1                 :        IN STD_LOGIC;
+                mrom_ad                 :        IN STD_LOGIC_VECTOR(14 DOWNTO 0);
+                mrom_dt                 :        OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+                cpu_rom_addr    :        OUT STD_LOGIC_VECTOR(14 DOWNTO 0);
+                cpu_rom_do              :        IN STD_LOGIC_VECTOR(7 DOWNTO 0)
+        );
+END COMPONENT;
+
  
  signal wav_clk_cnt : std_logic_vector(11 downto 0); -- 44kHz divider / sound# counter
  
@@ -537,14 +576,14 @@ end process;
 ---------------------------------
 -- players/dip switches inputs --
 ---------------------------------
-p1_input <= "000" & fire   & down   & up   & left   & right  ;
-p2_input <= "000" & fire_c & down_c & up_c & left_c & right_c;
+p1_input <= "00" & fire2 & fire1   & down   & up   & left   & right  ;
+p2_input <= "00" & fire2_c & fire1_c & down_c & up_c & left_c & right_c;
 gen_input <= service & coin2_mem & coin1_mem & '0' & start2 & start1 & "00";
 
 ------------------------------------------
 -- cpu data input with address decoding --
 ------------------------------------------
-cpu_di <= cpu_rom_do       when cpu_mreq_n = '0' and cpu_addr(15 downto 12) < X"6" else -- 0000-5FFF
+cpu_di <= cpu_rom_dec_combined       when cpu_mreq_n = '0' and cpu_addr(15 downto 12) < X"6" else -- 0000-5FFF
 			 wram_do          when cpu_mreq_n = '0' and cpu_addr(15 downto 12) = x"6" else -- 6000-6FFF
 			 ch_ram_do_to_cpu when cpu_mreq_n = '0' and (cpu_addr and x"E000") = x"8000" else -- video ram   8000-83FF + mirroring 1C00
 			 sp_ram_do_to_cpu when cpu_mreq_n = '0' and (cpu_addr and x"E000") = x"A000" else -- sprite ram  A000-A0FF + mirroring 1F00
@@ -698,19 +737,21 @@ end process;
 
 sp_online_vcnt <= sp_online_ram_do(7 downto 0) + ("111" & not(flip)  & flip  & flip  & flip  & '1') + vflip_r(7 downto 0) + 1; 
 
-sp_code_line <= (sp_code(5 downto 0)) & 
-					 (sp_line(4 downto 3) xor (sp_code(7) & sp_code(7))) &
-					 ("00"                xor (sp_code(6) & sp_code(6))) &
+sp_code_line <= (sp_code(6) and mod_futurespy) &
+				(sp_code(5 downto 0)) & 
+				(sp_line(4 downto 3) xor (sp_code(7) & sp_code(7))) &
+                ("00"                xor (sp_hflip & sp_hflip)) &
 					 (sp_line(2 downto 0) xor (sp_code(7) & sp_code(7) & sp_code(7)));
 			
-sp_buffer_ram_addr <= sp_bit_hpos when flip = '1' and hcnt(8) = '1' else not sp_bit_hpos;
+sp_buffer_ram_addr <= sp_bit_hpos_r when flip = '1' and hcnt(8) = '1' else not sp_bit_hpos_r;
 
 sp_buffer_ram_di <= x"00" when hcnt(8) = '1' else
 							sp_color_r & sp_graphics3_do(sp_bit_nb) &
 							sp_graphics2_do(sp_bit_nb) & sp_graphics1_do(sp_bit_nb);
 
 sp_buffer_ram_we <= pix_ena when hcnt(8) = '1' else
-						  sp_ok and clock_cnt(0) when sp_buffer_ram_do(2 downto 0) = "000" else '0';
+						  sp_ok_r and clock_cnt(0) when sp_buffer_ram_do(2 downto 0) = "000" else '0';
+sp_hflip <= sp_code(6) when (mod_futurespy= '0' and mod_superzaxxon='0') else sp_code(7);
 
 process (clock_vid)
 begin
@@ -725,10 +766,10 @@ begin
 		if hcnt(8)='0' then 
 		
 			if clock_cnt(0) = '1' then 
-				if sp_hflip = '1' then sp_bit_nb <= sp_bit_nb + 1; end if;
-				if sp_hflip = '0' then sp_bit_nb <= sp_bit_nb - 1; end if;
+				if sp_hflip_r = '1' then sp_bit_nb <= sp_bit_nb + 1; end if;
+				if sp_hflip_r = '0' then sp_bit_nb <= sp_bit_nb - 1; end if;
 				
-				sp_bit_hpos <= sp_bit_hpos + 1;			
+				sp_bit_hpos_r <= sp_bit_hpos_r + 1;			
 			end if;
 			
 			if pix_ena = '1' then 
@@ -736,34 +777,49 @@ begin
 			if hcnt(3 downto 0) = "0000" then sp_line  <= sp_online_vcnt; end if;
 			if hcnt(3 downto 0) = "0010" then sp_code  <= sp_online_ram_do(7 downto 0); end if;
 			if hcnt(3 downto 0) = "0100" then sp_color <= sp_online_ram_do(4 downto 0); end if;
-			if hcnt(3 downto 0) = "0110" then sp_bit_hpos <= sp_online_ram_do(7 downto 0) + ("111" & not(flip)  & flip  & flip  & flip  & '1') +1; end if;
-			
-			if hcnt(3 downto 0) = "0110" then
-				sp_graphics_addr <= sp_code_line;
-				sp_ok <= sp_online_ram_do(8);
-				sp_hflip <= sp_code(6);
-				--sp_vflip <= sp_code(7);
-				if sp_code(6) = '1' then sp_bit_nb <= 0; else sp_bit_nb <= 7; end if;
-				sp_color_r <= sp_color;
-			end if;
-			if hcnt(3 downto 0) = "1010" then
-				sp_graphics_addr(4 downto 3) <= "01" xor (sp_hflip & sp_hflip);
-			end if;
-			if hcnt(3 downto 0) = "1110" then
-				sp_graphics_addr(4 downto 3) <= "10" xor (sp_hflip & sp_hflip);
-			end if;
-			if hcnt(3 downto 0) = "0010" then
-				sp_graphics_addr(4 downto 3) <= "11" xor (sp_hflip & sp_hflip);
-			end if;
+				if hcnt(3 downto 0) = "0110" then 
+					sp_ok <= sp_online_ram_do(8);
+					sp_bit_hpos <= sp_online_ram_do(7 downto 0) + ("111" & not(flip)  & flip  & flip  & flip  & '1') +1;
+				end if;
+
+				if hcnt(3 downto 0) = "1000" then
+					if sp_hflip = '1' then sp_bit_nb <= 0; else sp_bit_nb <= 7; end if;
+					sp_bit_hpos_r <= sp_bit_hpos;
+					sp_color_r <= sp_color;
+					sp_hflip_r <= sp_hflip;
+					sp_vflip <= sp_code(7);
+					sp_ok_r <= sp_ok;
+				end if;
+
+				-- sprite rom address setup
+				if hcnt(3 downto 0) = "0110" then
+					sp_graphics_addr <= sp_code_line;
+				end if;
+				if hcnt(3 downto 0) = "1010" then
+					sp_graphics_addr(4 downto 3) <= "01" xor (sp_hflip_r & sp_hflip_r);
+				end if;
+				if hcnt(3 downto 0) = "1110" then
+					sp_graphics_addr(4 downto 3) <= "10" xor (sp_hflip_r & sp_hflip_r);
+				end if;
+				if hcnt(3 downto 0) = "0010" then
+					sp_graphics_addr(4 downto 3) <= "11" xor (sp_hflip_r & sp_hflip_r);
+				end if;
+				-- sprite rom data latch
+				if hcnt(3 downto 0) = "0100" or hcnt(3 downto 0) = "1000" or hcnt(3 downto 0) = "1100" or hcnt(3 downto 0) = "0000" then
+					sp_graphics1_do <= sp_graphics1_do_m;
+					sp_graphics2_do <= sp_graphics2_do_m;
+					sp_graphics3_do <= sp_graphics3_do_m;
+				end if;
+
 
 			end if;
 			
 		else
 		
 			if flip = '1' then 
-				sp_bit_hpos <= hcnt(7 downto 0) - 5; -- tune sprite position w.r.t. background
+				sp_bit_hpos_r <= hcnt(7 downto 0) - 5; -- tune sprite position w.r.t. background
 			else
-				sp_bit_hpos <= hcnt(7 downto 0) - 2; -- tune sprite position w.r.t. background
+				sp_bit_hpos_r <= hcnt(7 downto 0) - 2; -- tune sprite position w.r.t. background
 			end if;
 			
 		end if;
@@ -812,12 +868,10 @@ map_offset_h <= (bg_position & '1') + (x"0" & vflip(7 downto 0)) + 1;
 -- count from "00"->"FF" and then continue with "00"->"7F" instead of "80"->"FF"
 hflip2 <= hflip xor (not(hcnt(8)) & "0000000") when flip = '1' else hflip; 
 
-map_offset_l1 <= not('0' & vflip(7 downto 1)) + (hflip2(7 downto 3) & "111") + 1;
+map_offset_l1 <= not('0' & vflip(7 downto 1)) + (hflip2(7 downto 3) & "111");
 map_offset_l2 <= map_offset_l1 + ('0' & not(flip) & flip & flip & flip & "000");
 
 map_addr <=  map_offset_h(11 downto 3) & map_offset_l2(7 downto 3);
-
-bg_graphics_addr(2 downto 0) <= map_offset_h(2 downto 0);
 
 process (clock_vid)
 begin
@@ -825,13 +879,17 @@ begin
 
 		if pix_ena = '1' then
 		
-			if hcnt(2 downto 0) = "011" then  -- 4H^
-				bg_code_line(9 downto 0) <= map2_do(1 downto 0) & map1_do;
+			if (not(vflip(3 downto 1)) + hflip(2 downto 0)) = "000" then 
+				bg_graphics_addr(12 downto 3) <= map2_do(1 downto 0) & map1_do; -- bg_code_line
+				bg_graphics_addr(2 downto 0) <= map_offset_h(2 downto 0);
 				bg_color_a <= map2_do(7 downto 4);
 			end if;
 
 			if (not(vflip(3 downto 1)) + hflip(2 downto 0)) = "011" then 
-				bg_graphics_addr(12 downto 3) <= bg_code_line;
+				bg_graphics1_do <= bg_graphics1_do_m;
+				bg_graphics2_do <= bg_graphics2_do_m;
+				bg_graphics3_do <= bg_graphics3_do_m;
+
 				bg_color  <= bg_color_a;
 				
 				if flip  = '1' then bg_bit_nb <= 0;	else bg_bit_nb <= 7; end if;
@@ -839,7 +897,7 @@ begin
 				if flip  = '1' then 
 					bg_bit_nb <= bg_bit_nb + 1;
 				else
-					bg_bit_nb <= bg_bit_nb - 1;			
+					bg_bit_nb <= bg_bit_nb - 1;
 				end if;
 			end if;
 			
@@ -868,11 +926,11 @@ begin
 			
 			if ch_vid /= "00" then
 				palette_addr <= ch_color_ref & ch_color_do(3 downto 0) & '0' & ch_vid;
- 			end if;			
+ 			end if;
 		
-			video_r <= palette_do(2 downto 0);		
-			video_g <= palette_do(5 downto 3);		
-			video_b <= palette_do(7 downto 6);		
+			video_r <= palette_do(2 downto 0);
+			video_g <= palette_do(5 downto 3);
+			video_b <= palette_do(7 downto 6);
 		
 		end if;
 
@@ -1057,11 +1115,11 @@ port map(
   RESET_n => reset_n,
   CLK     => clock_vid,
   CEN     => cpu_ena,
-  WAIT_n  => '1',
+  WAIT_n  => not pause,
   INT_n   => cpu_irq_n,
   NMI_n   => '1', --cpu_nmi_n,
   BUSRQ_n => '1',
-  --M1_n    => cpu_m1_n,
+  M1_n    => cpu_m1_n,
   MREQ_n  => cpu_mreq_n,
   --IORQ_n  => cpu_ioreq_n,
   --RD_n    => cpu_rd_n,
@@ -1081,14 +1139,25 @@ port map(
 -- addr => cpu_addr(14 downto 0),
 -- data => cpu_rom_do
 --);
+cpu_rom_dec_combined <= cpu_rom_dec when (mod_superzaxxon = '1' or mod_futurespy = '1')  else cpu_rom_do;
+crypt_rom_cpu : Sega_Crypt
+port map(
+        clk                     => clock_vidn,
+	mod_futurespy => mod_futurespy,
+        mrom_m1                 => not cpu_m1_n,
+        mrom_ad         => cpu_addr(14 downto 0),
+        mrom_dt         => cpu_rom_dec,
+        cpu_rom_addr=> cpu_rom_addr,
+        cpu_rom_do  => cpu_rom_do
+);
 
-cpu_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 12) < "00101" else '0'; -- 00000-04FFF
+cpu_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 12) < "000101" else '0'; -- 00000-04FFF
 
 rom_cpu : entity work.dpram
 generic map( dWidth => 8, aWidth => 15)
 port map(
  clk_a  => clock_vidn,
- addr_a => cpu_addr(14 downto 0),
+ addr_a => cpu_rom_addr,
  q_a    => cpu_rom_do,
  clk_b  => clock_vid,
  addr_b => dl_addr(14 downto 0),
@@ -1097,14 +1166,21 @@ port map(
 );
 
 -- working RAM   0x6000-0x6FFF
-wram : entity work.gen_ram
+wram : entity work.dpram
 generic map( dWidth => 8, aWidth => 12)
 port map(
- clk  => clock_vidn,
- we   => wram_we,
- addr => cpu_addr(11 downto 0),
- d    => cpu_do,
- q    => wram_do
+ clk_a  => clock_vidn,
+ we_a   => wram_we,
+ addr_a => cpu_addr(11 downto 0),
+ d_a    => cpu_do,
+ q_a    => wram_do,
+ 
+ -- high score read/write
+ clk_b  => clock_24,
+ we_b   => hs_write,
+ addr_b => hs_address,
+ d_b    => hs_data_in,
+ q_b    => hs_data_out
 );
 
 -- video RAM   0x8000-0x83FF + mirroring adresses
@@ -1163,7 +1239,7 @@ port map(
 --);
 
 
-ch_1_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 11) = "001010" else '0'; -- 05000-057FF
+ch_1_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 11) = "0001010" else '0'; -- 05000-057FF
 
 bg_graphics_1 : entity work.dpram
 generic map( dWidth => 8, aWidth => 11)
@@ -1186,7 +1262,7 @@ port map(
 -- data => ch_graphx2_do
 --);
 
-ch_2_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 11) = "001011" else '0'; -- 05800-05FFF
+ch_2_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 11) = "0001011" else '0'; -- 05800-05FFF
 
 bg_graphics_2 : entity work.dpram
 generic map( dWidth => 8, aWidth => 11)
@@ -1208,7 +1284,7 @@ port map(
 -- data => map1_do
 --);
 
-map_1_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 14) = "101" else '0'; -- 14000-17FFF
+map_1_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 14) = "0111" else '0'; -- 1C000-17FFF
 
 map_tile_1 : entity work.dpram
 generic map( dWidth => 8, aWidth => 14)
@@ -1230,7 +1306,7 @@ port map(
 -- data => map2_do
 --);
 
-map_2_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 14) = "110" else '0'; -- 18000-1BFFF
+map_2_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 14) = "1000" else '0'; -- 20000-1BFFF
 
 map_tile_2 : entity work.dpram
 generic map( dWidth => 8, aWidth => 14)
@@ -1252,14 +1328,14 @@ port map(
 -- data => bg_graphics1_do
 --);
 
-bg_1_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "0011" else '0'; -- 06000-07FFF
+bg_1_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 13) = "00011" else '0'; -- 06000-07FFF
 
 bg_graphics_bits_1 : entity work.dpram
 generic map( dWidth => 8, aWidth => 13)
 port map(
  clk_a  => clock_vidn,
  addr_a => bg_graphics_addr,
- q_a    => bg_graphics1_do,
+ q_a    => bg_graphics1_do_m,
  clk_b  => clock_vid,
  addr_b => dl_addr(12 downto 0),
  we_b   => bg_1_rom_we,
@@ -1274,14 +1350,14 @@ port map(
 -- data => bg_graphics2_do
 --);
 
-bg_2_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "0100" else '0'; -- 08000-09FFF
+bg_2_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 13) = "00100" else '0'; -- 08000-09FFF
 
 bg_graphics_bits_2 : entity work.dpram
 generic map( dWidth => 8, aWidth => 13)
 port map(
  clk_a  => clock_vidn,
  addr_a => bg_graphics_addr,
- q_a    => bg_graphics2_do,
+ q_a    => bg_graphics2_do_m,
  clk_b  => clock_vid,
  addr_b => dl_addr(12 downto 0),
  we_b   => bg_2_rom_we,
@@ -1296,14 +1372,14 @@ port map(
 -- data => bg_graphics3_do
 --);
 
-bg_3_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "0101" else '0'; -- 0A000-0BFFF
+bg_3_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 13) = "00101" else '0'; -- 0A000-0BFFF
 
 bg_graphics_bits_3 : entity work.dpram
 generic map( dWidth => 8, aWidth => 13)
 port map(
  clk_a  => clock_vidn,
  addr_a => bg_graphics_addr,
- q_a    => bg_graphics3_do,
+ q_a    => bg_graphics3_do_m,
  clk_b  => clock_vid,
  addr_b => dl_addr(12 downto 0),
  we_b   => bg_3_rom_we,
@@ -1318,16 +1394,16 @@ port map(
 -- data => sp_graphics1_do
 --);
 
-sp_1_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "0110" else '0'; -- 0C000-0DFFF
+sp_1_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 14) = "0011" else '0'; -- 0C000-0FFFF
 
 sp_graphics_bits_1 : entity work.dpram
-generic map( dWidth => 8, aWidth => 13)
+generic map( dWidth => 8, aWidth => 14)
 port map(
  clk_a  => clock_vidn,
  addr_a => sp_graphics_addr,
- q_a    => sp_graphics1_do,
+ q_a    => sp_graphics1_do_m,
  clk_b  => clock_vid,
- addr_b => dl_addr(12 downto 0),
+ addr_b => dl_addr(13 downto 0),
  we_b   => sp_1_rom_we,
  d_b    => dl_data
 );
@@ -1340,16 +1416,16 @@ port map(
 -- data => sp_graphics2_do
 --);
 
-sp_2_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "0111" else '0'; -- 0E000-0FFFF
+sp_2_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 14) = "0100" else '0'; -- 10000-13FFF
 
 sp_graphics_bits_2 : entity work.dpram
-generic map( dWidth => 8, aWidth => 13)
+generic map( dWidth => 8, aWidth => 14)
 port map(
  clk_a  => clock_vidn,
  addr_a => sp_graphics_addr,
- q_a    => sp_graphics2_do,
+ q_a    => sp_graphics2_do_m,
  clk_b  => clock_vid,
- addr_b => dl_addr(12 downto 0),
+ addr_b => dl_addr(13 downto 0),
  we_b   => sp_2_rom_we,
  d_b    => dl_data
 );
@@ -1362,16 +1438,16 @@ port map(
 -- data => sp_graphics3_do
 --);
 
-sp_3_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 13) = "1000" else '0'; -- 10000-11FFF
+sp_3_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 14) = "0101" else '0'; -- 14000-17FFF
 
 sp_graphics_bits_3 : entity work.dpram
-generic map( dWidth => 8, aWidth => 13)
+generic map( dWidth => 8, aWidth => 14)
 port map(
  clk_a  => clock_vidn,
  addr_a => sp_graphics_addr,
- q_a    => sp_graphics3_do,
+ q_a    => sp_graphics3_do_m,
  clk_b  => clock_vid,
- addr_b => dl_addr(12 downto 0),
+ addr_b => dl_addr(13 downto 0),
  we_b   => sp_3_rom_we,
  d_b    => dl_data
 );
@@ -1388,7 +1464,7 @@ port map(
 -- data => ch_color_do
 --);
 
-ch_color_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 8) = "111000001" else '0'; -- 1C100-1C1FF
+ch_color_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 8) = "1001000001" else '0'; -- 24100-241FF
 
 char_color: entity work.dpram
 generic map( dWidth => 8, aWidth => 8)
@@ -1410,7 +1486,8 @@ port map(
 -- data => palette_do
 --);
 
-palette_rom_we <= '1' when dl_wr = '1' and dl_addr(16 downto 8) = "111000000" else '0'; -- 1C000-1C0FF
+--0000 0010 0100 000000000000
+palette_rom_we <= '1' when dl_wr = '1' and dl_addr(17 downto 8) = "1001000000" else '0'; -- 24000-240FF
 
 palette: entity work.dpram
 generic map( dWidth => 8, aWidth => 8)
