@@ -1,38 +1,43 @@
-# Sega/Gremlin Zaxxon port for MiSTer
+# [Arcade: Zaxxon](https://www.system16.com/hardware.php?id=689) port to [MiSTer](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
-# Keyboard inputs :
+MiSTer port by Dar (darfpga@aol.fr - sourceforge/darfpga)
+
+## Description
+
+A simulation model of Sega's Zaxxon hardware.
+
+## Games
+
+Currently implemented:
+
+* Zaxxon
+* Super Zaxxon
+* Future Spy
+
+## Hiscore save/load
+
+Save and load of hiscores is supported for this core.
+
+To save your hiscores manually, press the 'Save Settings' option in the OSD.  Hiscores will be automatically loaded when the core is started.
+
+To enable automatic saving of hiscores, turn on the 'Autosave Hiscores' option, press the 'Save Settings' option in the OSD, and reload the core.  Hiscores will then be automatically saved (if they have changed) any time the OSD is opened.
+
+Hiscore data is stored in /media/fat/config/nvram/ as ```<mra filename>.nvm```
+
+## ROM Files Instructions
+
+**ROMs are not included!** In order to use this arcade core, you will need to provide the correct ROM file yourself.
+
+To simplify the process .mra files are provided in the releases folder, that specify the required ROMs with their checksums. The ROMs .zip filename refers to the
+corresponding file from the MAME project.
+
+Please refer to https://github.com/MiSTer-devel/Main_MiSTer/wiki/Arcade-Roms for information on how to setup and use the environment.
+
+Quick reference for folders and file placement:
+
 ```
-   ESC         : Coin 1
-   F1          : Start 1P
-   F2          : Start 2P 
-   UP,DOWN,LEFT,RIGHT arrows : Player 1
-   LCtrl : Fire A
-
-
-   MAME/IPAC/JPAC Style Keyboard inputs:
-     5           : Coin 1
-     6           : Coin 2
-     1           : Start 1 Player
-     2           : Start 2 Player
-     R,F,D,G     : Player 2
-     A           : Fire2 A
-	
- Joystick support. 
+/_Arcade/<game name>.mra  
+/_Arcade/cores/<game rbf>.rbf  
+/_Arcade/mame/<mame rom>.zip  
+/_Arcade/hbmame/<hbmame rom>.zip  
 ```
-# Games
- 
-# ROMs
-```
-                                *** Attention ***
-
-ROM is not included. In order to use this arcade, you need to provide a correct ROM file.
-
-Find this zip file somewhere. You need to find the file exactly as required.
-Do not rename other zip files even if they also represent the same game - they are not compatible!
-The name of zip is taken from M.A.M.E. project, so you can get more info about
-hashes and contained files there.
-Put rom on your SD card. Example directory : _Arcade/mame/
-
-```
-
-Launch game using the appropriate .MRA
