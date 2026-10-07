@@ -339,8 +339,8 @@ wire [15:0] joy1_USB, joy2_USB;
 wire [15:0] joy3, joy4;
 // [MiSTer-DB9-Pro BEGIN] - DB controllers muted while OSD is open
 // joydb_1[4]=A(Fire1) [5]=B(Fire2) [10]=Start(Start1P) [9]=Mode(Start2P) [11]=Z(Coin)
-wire [15:0] joy1 = joydb_1ena ? (OSD_STATUS ? 16'b0 : joydb_1_mapped[8:0]) : joy1_USB;
-wire [15:0] joy2 = joydb_2ena ? (OSD_STATUS ? 16'b0 : joydb_2_mapped[8:0]) : joydb_1ena ? joy1_USB : joy2_USB;
+wire [15:0] joy1 = joydb_1ena ? (OSD_STATUS ? 16'b0 : joydb_1_mapped[9:0]) : joy1_USB;
+wire [15:0] joy2 = joydb_2ena ? (OSD_STATUS ? 16'b0 : joydb_2_mapped[9:0]) : joydb_1ena ? joy1_USB : joy2_USB;
 // [MiSTer-DB9-Pro END]
 
 wire signed [8:0] mouse_x;
